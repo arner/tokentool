@@ -4,6 +4,7 @@ export class TokenTool {
   private sourceKeypair: any;
   private server: StellarSdk.Server;
   private network: StellarSdk.Networks;
+  private timeout: number = 60;
 
   constructor(secretKey: string, liveNetwork: boolean = false) {
     this.sourceKeypair = StellarSdk.Keypair.fromSecret(secretKey);
@@ -40,7 +41,7 @@ export class TokenTool {
   }
 
   public async createAccounts(accountIds: string[]): Promise<void>  {
-    const tx = (await this.getTransactionBuilder()).setTimeout(30);
+    const tx = (await this.getTransactionBuilder()).setTimeout(this.timeout);
  
     // Add one create account operation per account
     for (let index = 0; index < accountIds.length; index++) {
@@ -53,14 +54,29 @@ export class TokenTool {
     await this.signAndSubmit(tx.build());
   }
 
-  public async createClaimableBalance(accountIds: string[], code: string, issuer: string, amount: string): Promise<void> { 
+  public async createClaimableBalances(accountIds: string[], code: string, issuer: string, amount: string): Promise<void> { 
+    const tx = (await this.getTransactionBuilder()).setTimeout(this.timeout);
+      
+    for (let index = 0; index < accountIds.length; index++) {
+      tx.addOperation(StellarSdk.Operation.createClaimableBalance({
+        asset: new StellarSdk.Asset(code, issuer),
+        claimants: [new StellarSdk.Claimant(accountIds[index], StellarSdk.Claimant.predicateBeforeRelativeTime((60*60*24*7).toString()))],
+        amount
+      }));
+    }
+
+    await this.signAndSubmit(tx.build());
+  }
+
+  // CAN BE CLAIMED ONLY ONCE BY ONLY ONE OF THE ACCOUNTS
+  public async createSingleClaimableBalance(accountIds: string[], code: string, issuer: string, amount: string): Promise<void> { 
     const tx = (await this.getTransactionBuilder())
       .addOperation(StellarSdk.Operation.createClaimableBalance({
         asset: new StellarSdk.Asset(code, issuer),
         claimants: accountIds.map(id => new StellarSdk.Claimant(id, StellarSdk.Claimant.predicateBeforeRelativeTime((60*60*24*7).toString()))),
         amount
       }))
-      .setTimeout(30)
+      .setTimeout(this.timeout)
       .build();
 
     await this.signAndSubmit(tx);
@@ -79,7 +95,7 @@ export class TokenTool {
         ],
         amount
       }))
-      .setTimeout(30)
+      .setTimeout(this.timeout)
       //.addMemo(StellarSdk.Memo.text('Hello world!'))
       .build();
 
@@ -113,7 +129,7 @@ export class TokenTool {
     } catch (err: any) {
       console.log('An error has occured submitting the transaction');
       if (err.response?.data?.extras?.result_codes) {
-        throw new Error(`Transaction failed: ${JSON.stringify(err.response.data.extras.result_codes)}`);
+        throw err.response.data.extras.result_codes;
       }
 
       throw err;

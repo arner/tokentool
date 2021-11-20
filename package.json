@@ -10,6 +10,7 @@
   "license": "UNLICENSED",
   "dependencies": {
     "csv-parser": "^3.0.0",
+    "csv-stringify": "^6.0.4",
     "stellar-sdk": "^9.0.1"
   }
 }

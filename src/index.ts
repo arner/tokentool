@@ -1,49 +1,79 @@
 import * as util from 'util';
+import { AccountStatus } from './account.interface';
 import { getConfig, IConfig } from './config';
-import { CSVReader } from './csvreader';
+import { AccountsReader as AccountManager } from './accountmanager';
 import { TokenTool } from './tokentool';
 
 (async () => {
   try {
     // Read environment variables for configuration (EXIT if not all set)
     const config: IConfig = getConfig();
-    const tokenTool = new TokenTool(config.distributionSecret, false);
+    const tokenTool = new TokenTool(config.distributionSecret, true);
 
-    // Get accounts from CSV
-    const reader = new CSVReader('./data/addresses.csv');
-    const formResults = await reader.parse();
-    console.log(`Found ${formResults.length} entries`);
-
-    // Convert accounts to addresses (EXIT on error)
-    const accounts: any[] = [];
-    for (let index = 0; index < formResults.length; index++) {
-      try {
-        // append lobstr.co if people didn't add it yet
-        const federated = formResults[index]['Lobstr account'].replace('*lobstr.co', '') + '*lobstr.co';
-        accounts[index] = await tokenTool.getAccountId(federated);
-      } catch (err: any) {
-        if (err.response.status == 404) {
-          throw new Error(`Address not found for ${JSON.stringify(formResults[index])}`);
-        } else {
-          throw err;
-        }
-      }
-    }
-    console.log('Accounts:');
-    console.log(accounts);
-
+    const manager = new AccountManager();
+    const jsonFilename = './data/addresses.json';
+  
     switch (process.argv[2]) {
+      case 'csvtojson':
+        await manager.loadFromCSV('./data/addresses.csv');
+        manager.writeToJSON(jsonFilename);
+
+        break;
+      case 'resolve':
+        manager.loadFromJSON(jsonFilename);
+        await manager.resolveMissingAddresses(tokenTool);
+        manager.writeToJSON(jsonFilename);
+
+        break;
       case 'create':
         // Create all accounts (or none on failure)
-        await tokenTool.createAccounts(accounts);
+        manager.loadFromJSON(jsonFilename);
+        const addr = manager.getAddresses(AccountStatus.RESOLVED);
+
+        try {
+          console.log(`Going to create ${addr.length} accounts`);
+
+          await tokenTool.createAccounts(addr);
+          manager.setStatus(addr, AccountStatus.CREATED);
+          manager.writeToJSON(jsonFilename);
+
+        } catch (err) {
+          console.log(util.inspect(err, { depth: 5 }));
+
+          //{"transaction":"tx_failed","operations":["op_already_exists","op_already_exists","op_already_exists"]}
+          if ((<any> err).transaction == 'tx_failed' && Array.isArray((<any> err).operations)) {
+            const existingAccounts: string[] = [];
+
+            for (let index = 0; index < (<any> err).operations.length; index++) {
+              if ((<any> err).operations[index] === 'op_already_exists') {
+                // the operation failed because this account was created before
+                existingAccounts.push(addr[index]);
+              } else {
+                console.error(`!!! Error on address ${addr[index]} : ${(<any> err).operations[index]}`);
+              }
+            }
+
+            // Only set accounts that already existed to CREATED.
+            // The others have not been updated; the transaction failed because of these failing operations.
+            manager.setStatus(existingAccounts, AccountStatus.CREATED);
+            manager.writeToJSON(jsonFilename);
+          } else {
+            throw err;
+          }
+        }
         break;
       case 'fund':
-        // Create claimable balances for all accounts
-        await tokenTool.createClaimableBalance(accounts, config.currencyCode, config.issuer, config.amount);
+        // Create claimable balances for all CREATED accounts
+        manager.loadFromJSON(jsonFilename);
+        const addresses = manager.getAddresses(AccountStatus.CREATED);
+
+        await tokenTool.createClaimableBalances(addresses, config.currencyCode, config.issuer, config.amount);
+        manager.setStatus(addresses, AccountStatus.FUNDED);
+        manager.writeToJSON(jsonFilename);
+
         break;
-        
       default:
-        console.log('Usage: node dist/index.js [create, fund]');
+        console.log('Usage: node dist/index.js [csvtojson, resolve, create, fund]');
         break;
     }
   } catch (err) {
