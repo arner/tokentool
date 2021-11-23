@@ -8,6 +8,7 @@ export class AccountsReader {
 
   constructor(){}
 
+  // Returns all addresses that are set. Error if no addresses found.
   public getAddresses(status?: AccountStatus): string[] {
     let accounts = this.accounts.filter(a => !status || a.Status === status);
     const addresses = accounts.map(a => <string> a.Address).filter(a => !!a);
@@ -20,8 +21,11 @@ export class AccountsReader {
   }
 
   public setStatus(addresses: string[], status: AccountStatus) {
+    console.log(`Setting status to ${status} for ${addresses.length} accounts`);
+
     for (let index = 0; index < this.accounts.length; index++) {
-      if (!this.accounts[index].Address || <string> this.accounts[index].Address !in addresses) {
+      // Skip if address not set or address not in the list
+      if (!this.accounts[index].Address || !addresses.includes(<string> this.accounts[index].Address)) {
         continue;
       }
 
@@ -52,24 +56,44 @@ export class AccountsReader {
 
   public async resolveMissingAddresses(tokenTool: TokenTool): Promise<void> {
     let addressesAdded = 0;
+
     // Convert accounts to addresses (EXIT on error)
     for (let index = 0; index < this.accounts.length; index++) {
+      let federated = '';
+
       try {
+        // Skip if address is set already
         if (this.accounts[index].Address) {
           console.log(`${this.accounts[index]['Lobstr account']} has Address set already`);
 
           continue;
         }
 
-        // append lobstr.co if people didn't add it yet
-        const federated = this.accounts[index]['Lobstr account'].replace('*lobstr.co', '') + '*lobstr.co';
-        this.accounts[index].Address = await tokenTool.getAccountId(federated);
+        // Skip because they filled in the address instead of the federated address
+        if (this.isProbablyStellarAddress(this.accounts[index]['Lobstr account'])) {
+          this.accounts[index].Address = this.accounts[index]['Lobstr account'];
+          addressesAdded++;
 
+          continue;
+        }
+
+        if (this.accounts[index]['Lobstr account'].includes('@')) {
+          console.warn(`-- Account ${this.accounts[index]['Lobstr account']} contains @ - ask them to provide their federated address`);
+        }
+
+        // append lobstr.co if people didn't add it yet, correct some common mistakes
+        federated = this.accounts[index]['Lobstr account']
+          .replace('*lobstr.com', '')
+          .replace('.lobstr.co', '')
+          .replace('*lobstr.co', '')
+          + '*lobstr.co';
+
+        this.accounts[index].Address = await tokenTool.getAccountId(federated);
 
         addressesAdded++;
       } catch (err: any) {
         if (err.response.status == 404) {
-          console.warn(`Address not found for ${JSON.stringify(this.accounts[index])}. Continuing...`);
+          console.warn(`-- Address not found for ${federated} - ${JSON.stringify(this.accounts[index])}. Continuing...`);
           // throw new Error(`Address not found for ${JSON.stringify(this.accounts[index])}`);
         } else {
           throw err;
@@ -98,10 +122,13 @@ export class AccountsReader {
       if (!accounts[index].Status) {
         accounts[index].Status = AccountStatus.NONE;
       }
-      if (!accounts[index].Account) {
-        accounts[index].Account = '';
+      if (!accounts[index].Address) {
+        accounts[index].Address = '';
       }
     }
+    this.accounts = accounts;
+
+    console.log(`Parsed ${accounts.length} accounts from csv`);
   }
 
   private async parseCSV(filename: string): Promise<any[]> {
@@ -114,5 +141,9 @@ export class AccountsReader {
         .on('error', (err: Error) => reject(err))
         .on('end', () => resolve(results));      
     });
+  }
+
+  private isProbablyStellarAddress(address: string) {
+    return !address.includes('*') && address.length === 56 && address.substr(0, 1) == 'G';
   }
 }

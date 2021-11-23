@@ -34,6 +34,8 @@ import { TokenTool } from './tokentool';
           console.log(`Going to create ${addr.length} accounts`);
 
           await tokenTool.createAccounts(addr);
+          
+          console.log(`Created ${addr.length} accounts`);
           manager.setStatus(addr, AccountStatus.CREATED);
           manager.writeToJSON(jsonFilename);
 
@@ -45,8 +47,14 @@ import { TokenTool } from './tokentool';
             const existingAccounts: string[] = [];
 
             for (let index = 0; index < (<any> err).operations.length; index++) {
+              if ((<any> err).operations[index] === 'op_success') {
+                continue;
+              }
+
               if ((<any> err).operations[index] === 'op_already_exists') {
                 // the operation failed because this account was created before
+                console.log(`Address ${addr[index]} was already created`);
+
                 existingAccounts.push(addr[index]);
               } else {
                 console.error(`!!! Error on address ${addr[index]} : ${(<any> err).operations[index]}`);
@@ -57,6 +65,8 @@ import { TokenTool } from './tokentool';
             // The others have not been updated; the transaction failed because of these failing operations.
             manager.setStatus(existingAccounts, AccountStatus.CREATED);
             manager.writeToJSON(jsonFilename);
+
+            throw new Error(`${existingAccounts.length} accounts already existed; transaction failed. Status updated for existing accounts, please try again`);
           } else {
             throw err;
           }
