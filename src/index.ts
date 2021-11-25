@@ -82,6 +82,12 @@ import { TokenTool } from './tokentool';
         manager.writeToJSON(jsonFilename);
 
         break;
+      case 'info':
+          // Create claimable balances for all CREATED accounts
+          manager.loadFromJSON(jsonFilename);
+          manager.printAddresses();
+  
+          break;
       default:
         console.log('Usage: node dist/index.js [csvtojson, resolve, create, fund]');
         break;

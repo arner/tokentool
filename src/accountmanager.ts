@@ -82,11 +82,7 @@ export class AccountsReader {
         }
 
         // append lobstr.co if people didn't add it yet, correct some common mistakes
-        federated = this.accounts[index]['Lobstr account']
-          .replace('*lobstr.com', '')
-          .replace('.lobstr.co', '')
-          .replace('*lobstr.co', '')
-          + '*lobstr.co';
+        federated = this.getFixedAddress(this.accounts[index]['Lobstr account']);
 
         this.accounts[index].Address = await tokenTool.getAccountId(federated);
 
@@ -114,6 +110,18 @@ export class AccountsReader {
   public loadFromJSON(filename: string): void {
     const results = fs.readFileSync(filename);
     this.accounts = JSON.parse(results.toString());
+  }
+
+  private getFixedAddress(address: string) {
+    return address
+      .replace('*lobstr.com', '')
+      .replace('.lobstr.co', '')
+      .replace('*lobstr.co', '')
+      + '*lobstr.co';
+  }
+
+  public printAddresses() {
+    console.log(this.accounts.map(a => `${a.Name} - ${this.getFixedAddress(a['Lobstr account'])}`));
   }
 
   public async loadFromCSV(filename: string): Promise<void> {
